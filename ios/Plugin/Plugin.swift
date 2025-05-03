@@ -161,23 +161,25 @@ public class GoogleAuth: CAPPlugin {
         return nil;
     }
 
-    func resolveSignInCallWith(user: GIDGoogleUser) {
+    func resolveSignInCallWith(user: GIDGoogleUser, accessToken: String?, idToken: String?) {
+        var authenticationData: [String: Any] = [
+            "accessToken": accessToken ?? NSNull(),
+            "idToken": idToken ?? NSNull()
+        ]
+    
         var userData: [String: Any] = [
-            "authentication": [
-                "accessToken": user.authentication.accessToken,
-                "idToken": user.authentication.idToken,
-                "refreshToken": user.authentication.refreshToken
-            ],
-            "serverAuthCode": user.serverAuthCode ?? NSNull(),
+            "authentication": authenticationData,
             "email": user.profile?.email ?? NSNull(),
             "familyName": user.profile?.familyName ?? NSNull(),
             "givenName": user.profile?.givenName ?? NSNull(),
             "id": user.userID ?? NSNull(),
             "name": user.profile?.name ?? NSNull()
-        ];
+        ]
+    
         if let imageUrl = user.profile?.imageURL(withDimension: 100)?.absoluteString {
-            userData["imageUrl"] = imageUrl;
+            userData["imageUrl"] = imageUrl
         }
-        signInCall?.resolve(userData);
+    
+        signInCall?.resolve(userData)
     }
 }
