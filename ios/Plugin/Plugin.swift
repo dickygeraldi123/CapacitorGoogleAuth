@@ -69,26 +69,53 @@ public class GoogleAuth: CAPPlugin {
 
     @objc
     func signIn(_ call: CAPPluginCall) {
-        signInCall = call;
+        self.signInCall = call
+
         DispatchQueue.main.async {
-            if self.googleSignIn.hasPreviousSignIn() && !self.forceAuthCode {
-                self.googleSignIn.restorePreviousSignIn() { user, error in
-                if let error = error {
-                    self.signInCall?.reject(error.localizedDescription);
-                    return;
-                }
-                self.resolveSignInCallWith(user: user!)
+            guard let presentingVC = self.bridge?.viewController else {
+                call.reject("Unable to get presenting view controller")
+                return
+            }
+
+            if GIDSignIn.sharedInstance.hasPreviousSignIn() && !self.forceAuthCode {
+                GIDSignIn.sharedInstance.restorePreviousSignIn { user, error in
+                    if let error = error {
+                        call.reject(error.localizedDescription)
+                        return
+                    }
+                    guard let user = user else {
+                        call.reject("User restoration failed")
+                        return
+                    }
+
+                    user.fetchAccessTokens { auth, error in
+                        if let error = error {
+                            call.reject(error.localizedDescription)
+                            return
+                        }
+                        self.resolveSignInCallWith(user: user, accessToken: auth?.accessToken, idToken: user.idToken?.tokenString)
+                    }
                 }
             } else {
-                let presentingVc = self.bridge!.viewController!;
-                
-                self.googleSignIn.signIn(with: self.googleSignInConfiguration, presenting: presentingVc, hint: nil, additionalScopes: self.additionalScopes) { user, error in
+                GIDSignIn.sharedInstance.signIn(withPresenting: presentingVC) { result, error in
                     if let error = error {
-                        self.signInCall?.reject(error.localizedDescription, "\(error._code)");
-                        return;
+                        call.reject(error.localizedDescription, "\(error._code)")
+                        return
                     }
-                    self.resolveSignInCallWith(user: user!);
-                };
+
+                    guard let user = result?.user else {
+                        call.reject("Sign in failed")
+                        return
+                    }
+
+                    user.fetchAccessTokens { auth, error in
+                        if let error = error {
+                            call.reject(error.localizedDescription)
+                            return
+                        }
+                        self.resolveSignInCallWith(user: user, accessToken: auth?.accessToken, idToken: user.idToken?.tokenString)
+                    }
+                }
             }
         }
     }
