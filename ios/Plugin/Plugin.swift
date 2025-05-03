@@ -70,30 +70,36 @@ public class GoogleAuth: CAPPlugin {
     @objc
     func signIn(_ call: CAPPluginCall) {
         self.signInCall = call
-
+    
         DispatchQueue.main.async {
             guard let presentingVC = self.bridge?.viewController else {
                 call.reject("Unable to get presenting view controller")
                 return
             }
-
+    
             if GIDSignIn.sharedInstance.hasPreviousSignIn() && !self.forceAuthCode {
                 GIDSignIn.sharedInstance.restorePreviousSignIn { user, error in
                     if let error = error {
                         call.reject(error.localizedDescription)
                         return
                     }
-                    guard let user = user else {
-                        call.reject("User restoration failed")
-                        return
-                    }
-
-                    user.fetchAccessTokens { auth, error in
+    
+                    GIDSignIn.sharedInstance.currentUser?.refreshTokensIfNeeded { refreshedUser, error in
                         if let error = error {
                             call.reject(error.localizedDescription)
                             return
                         }
-                        self.resolveSignInCallWith(user: user, accessToken: auth?.accessToken, idToken: user.idToken?.tokenString)
+    
+                        guard let refreshedUser = refreshedUser else {
+                            call.reject("Token refresh failed.")
+                            return
+                        }
+    
+                        self.resolveSignInCallWith(
+                            user: refreshedUser,
+                            accessToken: refreshedUser.accessToken.tokenString,
+                            idToken: refreshedUser.idToken?.tokenString
+                        )
                     }
                 }
             } else {
@@ -102,19 +108,17 @@ public class GoogleAuth: CAPPlugin {
                         call.reject(error.localizedDescription, "\(error._code)")
                         return
                     }
-
-                    guard let user = result?.user else {
+    
+                    guard let signedInUser = result?.user else {
                         call.reject("Sign in failed")
                         return
                     }
-
-                    user.fetchAccessTokens { auth, error in
-                        if let error = error {
-                            call.reject(error.localizedDescription)
-                            return
-                        }
-                        self.resolveSignInCallWith(user: user, accessToken: auth?.accessToken, idToken: user.idToken?.tokenString)
-                    }
+    
+                    self.resolveSignInCallWith(
+                        user: signedInUser,
+                        accessToken: signedInUser.accessToken.tokenString,
+                        idToken: signedInUser.idToken?.tokenString
+                    )
                 }
             }
         }
@@ -123,25 +127,31 @@ public class GoogleAuth: CAPPlugin {
     @objc
     func refresh(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
-            if self.googleSignIn.currentUser == nil {
-                call.reject("User not logged in.");
+            guard let user = GIDSignIn.sharedInstance.currentUser else {
+                call.reject("User not logged in.")
                 return
             }
-            self.googleSignIn.currentUser!.authentication.do { (authentication, error) in
-                guard let authentication = authentication else {
-                    call.reject(error?.localizedDescription ?? "Something went wrong.");
-                    return;
+    
+            user.refreshTokensIfNeeded { user, error in
+                if let error = error {
+                    call.reject(error.localizedDescription)
+                    return
                 }
-                let authenticationData: [String: Any] = [
-                    "accessToken": authentication.accessToken,
-                    "idToken": authentication.idToken ?? NSNull(),
-                    "refreshToken": authentication.refreshToken
+    
+                guard let user = user else {
+                    call.reject("Unable to refresh user tokens.")
+                    return
+                }
+    
+                let authData: [String: Any] = [
+                    "accessToken": user.accessToken.tokenString,
+                    "idToken": user.idToken?.tokenString ?? NSNull()
                 ]
-                call.resolve(authenticationData);
+                call.resolve(authData)
             }
         }
     }
-
+    
     @objc
     func signOut(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
